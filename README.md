@@ -40,12 +40,28 @@ Therefore, the task is to examine Data Bank's customer node and transaction data
 
 **Q5. What is the percentage of customers who increase their closing balance by more than 5%?**
 ```sql
-SELECT 
-    ROUND(
-        100.0 * COUNT(DISTINCT customer_id) / 
-        (SELECT COUNT(DISTINCT customer_id) FROM data_bank.customer_transactions), 
-    2) AS pct_customers_increased
-FROM (
+WITH monthly_changes AS (
+    SELECT 
+        customer_id,
+        LAST_DAY(txn_date) AS month_end,
+        SUM(CASE 
+            WHEN txn_type = 'deposit' THEN txn_amount 
+            ELSE -txn_amount 
+        END) AS net_change
+    FROM customer_transactions
+    GROUP BY customer_id, month_end
+),
+running_balances AS (
+    SELECT 
+        customer_id,
+        month_end,
+        SUM(net_change) OVER (
+            PARTITION BY customer_id 
+            ORDER BY month_end
+        ) AS closing_balance
+    FROM monthly_changes
+),
+lagged_balances AS (
     SELECT 
         customer_id,
         month_end,
@@ -54,21 +70,14 @@ FROM (
             PARTITION BY customer_id 
             ORDER BY month_end
         ) AS prev_balance
-    FROM (
-        SELECT 
-            customer_id,
-            LAST_DAY(txn_date) AS month_end,
-            SUM(SUM(CASE 
-                WHEN txn_type = 'deposit' THEN txn_amount 
-                ELSE -txn_amount 
-            END)) OVER (
-                PARTITION BY customer_id 
-                ORDER BY LAST_DAY(txn_date)
-            ) AS closing_balance
-        FROM data_bank.customer_transactions
-        GROUP BY customer_id, LAST_DAY(txn_date)
-    ) AS running_balances
-) AS lagged_balances
+    FROM running_balances
+)
+SELECT 
+    ROUND(
+        100.0 * COUNT(DISTINCT customer_id) / 
+        (SELECT COUNT(DISTINCT customer_id) FROM customer_transactions), 
+    2) AS pct_customers_increased
+FROM lagged_balances
 WHERE prev_balance > 0 
   AND ((closing_balance - prev_balance) / prev_balance) > 0.05;
 ```
