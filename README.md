@@ -84,14 +84,7 @@ WHERE prev_balance > 0
 
 **Q4. What is the closing balance for each customer at the end of the month?**
 ```sql
-SELECT 
-    customer_id,
-    month_end,
-    SUM(net_change) OVER (
-        PARTITION BY customer_id 
-        ORDER BY month_end
-    ) AS closing_balance
-FROM (
+WITH monthly_changes AS (
     SELECT 
         customer_id,
         LAST_DAY(txn_date) AS month_end,
@@ -99,9 +92,17 @@ FROM (
             WHEN txn_type = 'deposit' THEN txn_amount 
             ELSE -txn_amount 
         END) AS net_change
-    FROM data_bank.customer_transactions
+    FROM customer_transactions
     GROUP BY customer_id, month_end
-) AS monthly_changes
+)
+SELECT 
+    customer_id,
+    month_end,
+    SUM(net_change) OVER (
+        PARTITION BY customer_id 
+        ORDER BY month_end
+    ) AS closing_balance
+FROM monthly_changes
 ORDER BY customer_id, month_end;
 ```
 
